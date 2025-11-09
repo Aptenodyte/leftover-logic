@@ -1,0 +1,133 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite" // Or your preferred database
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------------------------
+// User and Authentication
+// -----------------------------------------------------------------------------
+model User {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  passwordHash String
+  salt         String
+  createdAt    DateTime @default(now())
+
+  // A user has one fridge. This is a one-to-one relationship.
+  fridge Fridge?
+}
+
+// -----------------------------------------------------------------------------
+// Fridge and Inventory
+// -----------------------------------------------------------------------------
+model Fridge {
+  id      Int @id @default(autoincrement())
+  
+  // Establishes the one-to-one relationship back to the User.
+  // The `userId` field is unique to ensure a user can only have one fridge.
+  user    User @relation(fields: [userId], references: [id])
+  userId  Int  @unique
+
+  // A fridge can contain many items.
+  items   FridgeItem[]
+}
+
+model FridgeItem {
+  id             Int      @id @default(autoincrement())
+  quantity       Float    // Renamed from "measurement" for clarity
+  unit           String   // e.g., "grams", "ml", "count"
+  expirationDate DateTime
+
+  // The FridgeItem is an *instance* of a generic Item (see below).
+  // This allows us to track a user's specific apple without tying a recipe to it.
+  item    Item @relation(fields: [itemId], references: [id])
+  itemId  Int
+
+  // The FridgeItem belongs to one Fridge.
+  fridge   Fridge @relation(fields: [fridgeId], references: [id])
+  fridgeId Int
+}
+
+
+// -----------------------------------------------------------------------------
+// Generic Item and Nutritional Information
+// This is a key design choice. We separate the "concept" of an item
+// from the "instance" of an item in a user's fridge.
+// -----------------------------------------------------------------------------
+model Item {
+  id   Int    @id @default(autoincrement())
+  name String @unique // e.g., "Apple", "Whole Milk", "Chicken Breast"
+
+  // An item can be in many fridges.
+  fridgeInstances FridgeItem[]
+
+  // An item has one set of nutritional facts.
+  nutritionalValue   NutritionalValue?
+
+  // An item can be used in many recipes.
+  recipes RecipeItem[]
+}
+
+model NutritionalValue {
+  id           Int   @id @default(autoincrement())
+  servingSize  String // e.g., "100g", "1 cup"
+  
+  // Macronutrients
+  calories     Float @default(0)
+  totalFat     Float @default(0) // in grams
+  saturatedFat Float @default(0) // in grams
+  transFat     Float @default(0) // in grams
+  protein      Float @default(0) // in grams
+
+  // Micronutrients & Other
+  cholesterol      Float @default(0) // in milligrams
+  sodium           Float @default(0) // in milligrams
+  totalCarbohydrate Float @default(0) // in grams
+  dietaryFiber     Float @default(0) // in grams
+  totalSugars      Float @default(0) // in grams
+  
+  // Establishes a one-to-one relationship with a generic Item.
+  // The `itemId` is unique to ensure nutritional facts apply to only one item type.
+  item   Item @relation(fields: [itemId], references: [id])
+  itemId Int  @unique
+}
+
+
+// -----------------------------------------------------------------------------
+// Recipes
+// -----------------------------------------------------------------------------
+model Recipe {
+  id           Int      @id @default(autoincrement())
+  title        String
+  description  String
+  instructions String   // Could be a JSON array of steps or a long string
+  createdAt    DateTime @default(now())
+  
+  // A recipe is made up of many items (ingredients).
+  // This points to the explicit join table `RecipeItem`.
+  ingredients RecipeItem[]
+}
+
+// This is the explicit "join table" for the many-to-many relationship
+// between Recipe and Item. It's necessary because we need to store
+// extra information about the relationship (the quantity and unit).
+model RecipeItem {
+  quantity Float
+  unit     String // e.g., "grams", "cups", "tbsp"
+
+  // Foreign keys to establish the many-to-many relationship
+  recipe    Recipe @relation(fields: [recipeId], references: [id])
+  recipeId  Int
+  item      Item   @relation(fields: [itemId], references: [id])
+  itemId    Int
+
+  // A composite primary key ensures that an item can only appear once per recipe.
+  @@id([recipeId, itemId])
+}
